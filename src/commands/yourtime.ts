@@ -18,7 +18,7 @@ export const data = new SlashCommandBuilder()
     .addStringOption(option =>
         option
             .setName('message')
-            .setDescription('The message containing [your-time] placeholder')
+            .setDescription('The message containing {time} placeholder')
             .setRequired(true)
     );
 
@@ -37,9 +37,18 @@ export async function execute(
     }
 
     const datetimeStr = interaction.options.getString('datetime', true);
-    const message = interaction.options.getString('message', true);
+    const messageTemplate = interaction.options.getString('message', true);
+
+    if (!messageTemplate.includes('{time}')) {
+        await interaction.reply({
+            content: 'Message must contain {time} placeholder where the time should appear',
+            ephemeral: true
+        });
+        return;
+    }
 
     try {
+        // Parse the input datetime in the sender's timezone
         const inputDt = DateTime.fromFormat(
             datetimeStr,
             'yyyy-MM-dd HH:mm:ss',
@@ -50,17 +59,19 @@ export async function execute(
             throw new Error(inputDt.invalidReason);
         }
 
-        const convertedMessages = new Map<string, string>();
+        // Create a Discord timestamp that will automatically convert to each user's timezone
+        // Format: <t:timestamp:f> for full date and time
+        const discordTimestamp = `<t:${Math.floor(inputDt.toSeconds())}:f>`;
         
-        for (const [userId, pref] of Object.entries(timezonesData)) {
-            const userDt = inputDt.setZone(pref.timezone);
-            const formattedTime = formatDateTime(userDt, pref);
-            const userMessage = message.replace('[your-time]', formattedTime);
-            convertedMessages.set(userId, userMessage);
-        }
-
-        const senderMessage = convertedMessages.get(interaction.user.id)!;
-        await interaction.reply(senderMessage);
+        // Replace the {time} placeholder with the Discord timestamp
+        const finalMessage = messageTemplate.replace('{time}', discordTimestamp);
+        
+        // Send the message with the Discord timestamp
+        await interaction.reply({
+            content: finalMessage,
+            // Set ephemeral to false so everyone can see it
+            ephemeral: false
+        });
 
     } catch (error) {
         await interaction.reply({
